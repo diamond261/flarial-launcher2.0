@@ -4,7 +4,7 @@
              xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006" 
              xmlns:d="http://schemas.microsoft.com/expression/blend/2008" 
              xmlns:local="clr-namespace:Flarial.Launcher.Styles"
-             mc:Ignorable="d" Loaded="MessageBox_OnLoaded"
+             mc:Ignorable="d"
              RenderTransformOrigin="0.5,1.0"
              Margin="0,0,0,0" VerticalAlignment="Bottom" HorizontalAlignment="Center"
              d:DesignHeight="35" d:DesignWidth="150">

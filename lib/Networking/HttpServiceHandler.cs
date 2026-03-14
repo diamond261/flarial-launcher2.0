@@ -39,7 +39,10 @@ sealed partial class HttpServiceHandler : HttpClientHandler
         try
         {
             using var message = await s_client.GetAsync(TraceUri, ResponseHeadersRead);
-            var @string = message.Headers.GetValues("cf-meta-ip").FirstOrDefault();
+            if (!message.Headers.TryGetValues("cf-meta-ip", out var values))
+                return null;
+
+            var @string = values.FirstOrDefault();
 
             if (!TryParse(@string, out var address))
                 return null;
@@ -51,30 +54,39 @@ sealed partial class HttpServiceHandler : HttpClientHandler
                 _ => null
             };
         }
-        catch (HttpRequestException) { return null; }
+        catch (Exception) { return null; }
     }
 
     protected override async Task<HttpResponseMessage> SendAsync(HttpRequestMessage request, CancellationToken token)
     {
         var uri = request.RequestUri;
 
-        if (UseDnsOverHttps && uri.HostNameType is Dns && await VersionAsync() is { } version)
+        if (!HttpService.UseProxy && UseDnsOverHttps && uri.HostNameType is Dns && await VersionAsync() is { } version)
         {
-            var name = uri.Host;
+            try
+            {
+                var name = uri.Host;
 
-            var type = version switch { Ipv6 => "AAAA", Ipv4 => "A", _ => null };
-            var value = version switch { Ipv6 => "28", Ipv4 => "1", _ => null };
+                var type = version switch { Ipv6 => "AAAA", Ipv4 => "A", _ => null };
+                var value = version switch { Ipv6 => "28", Ipv4 => "1", _ => null };
 
-            using var stream = await s_client.GetStreamAsync(string.Format(DnsUri, name, type));
-            using var reader = JsonReaderWriterFactory.CreateJsonReader(stream, XmlDictionaryReaderQuotas.Max);
+                using var stream = await s_client.GetStreamAsync(string.Format(DnsUri, name, type));
+                using var reader = JsonReaderWriterFactory.CreateJsonReader(stream, XmlDictionaryReaderQuotas.Max);
 
-            foreach (var element in XElement.Load(reader).Descendants("data"))
-                if (element.Parent.Element("type").Value == value)
-                {
-                    UriBuilder builder = new(uri) { Host = element.Value };
-                    request.RequestUri = builder.Uri; request.Headers.Host = name;
-                    break;
-                }
+                foreach (var element in XElement.Load(reader).Descendants("data"))
+                    if (element.Parent?.Element("type")?.Value == value)
+                    {
+                        UriBuilder builder = new(uri) { Host = element.Value };
+                        request.RequestUri = builder.Uri;
+                        request.Headers.Host = name;
+                        break;
+                    }
+            }
+            catch (Exception)
+            {
+                request.RequestUri = uri;
+                request.Headers.Host = null;
+            }
         }
 
         return await base.SendAsync(request, token);

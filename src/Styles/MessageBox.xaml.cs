@@ -4,6 +4,7 @@ using System.Windows;
 using System.Windows.Controls;
 using System.Windows.Media;
 using System.Windows.Media.Animation;
+using System.Windows.Threading;
 
 namespace Flarial.Launcher.Styles
 {
@@ -12,51 +13,88 @@ namespace Flarial.Launcher.Styles
     /// </summary>
     public partial class MessageBox : UserControl
     {
+        internal static readonly TimeSpan DefaultDismissDelay = TimeSpan.FromSeconds(3);
+        static readonly TimeSpan s_closeAnimationDuration = TimeSpan.FromMilliseconds(200);
+
         public string Text { get; set; }
         public bool ShowFlarialLogo { get; set; }
+        public event EventHandler Closed;
+
         bool _closing;
+        bool _closed;
+        readonly DispatcherTimer _closeTimer;
+        readonly TaskCompletionSource<bool> _closeCompletion = new(TaskCreationOptions.RunContinuationsAsynchronously);
 
         public MessageBox()
         {
             InitializeComponent();
             this.DataContext = this;
             Text = "temp";
+
+            _closeTimer = new DispatcherTimer
+            {
+                Interval = DefaultDismissDelay
+            };
+            _closeTimer.Tick += async (_, _) =>
+            {
+                _closeTimer.Stop();
+                await CloseAsync();
+            };
+
+            Loaded += MessageBox_OnLoaded;
+            Unloaded += (_, _) => _closeTimer.Stop();
         }
 
         private async void ButtonBase_OnClick(object sender, RoutedEventArgs e)
             => await CloseAsync();
 
-        private async void MessageBox_OnLoaded(object sender, RoutedEventArgs e)
+        public Task DismissAsync() => CloseAsync();
+
+        private void MessageBox_OnLoaded(object sender, RoutedEventArgs e)
         {
-            await Task.Delay(3000);
-            await CloseAsync();
+            if (_closing || _closed)
+                return;
+
+            _closeTimer.Stop();
+            _closeTimer.Start();
         }
 
         async Task CloseAsync()
         {
             if (_closing)
+            {
+                await _closeCompletion.Task;
                 return;
+            }
 
             _closing = true;
+            _closeTimer.Stop();
+
+            if (!IsLoaded)
+            {
+                CompleteClose();
+                return;
+            }
+
             var sb = new Storyboard();
 
             var an1 = new DoubleAnimation
             {
-                Duration = TimeSpan.FromMilliseconds(200),
+                Duration = s_closeAnimationDuration,
                 To = 0,
                 EasingFunction = new QuadraticEase { EasingMode = EasingMode.EaseIn }
             };
 
             var an2 = new DoubleAnimation
             {
-                Duration = TimeSpan.FromMilliseconds(200),
+                Duration = s_closeAnimationDuration,
                 To = 0,
                 EasingFunction = new QuadraticEase { EasingMode = EasingMode.EaseIn }
             };
 
             var an3 = new ThicknessAnimation
             {
-                Duration = TimeSpan.FromMilliseconds(200),
+                Duration = s_closeAnimationDuration,
                 To = new Thickness(0, 25, 0, -25),
                 EasingFunction = new QuadraticEase { EasingMode = EasingMode.EaseIn }
             };
@@ -72,10 +110,26 @@ namespace Flarial.Launcher.Styles
             sb.Children.Add(an2);
             sb.Children.Add(an3);
 
+            TaskCompletionSource<bool> animationCompletion = new(TaskCreationOptions.RunContinuationsAsynchronously);
+            sb.Completed += (_, _) => animationCompletion.TrySetResult(true);
             sb.Begin(this);
 
-            await Task.Delay(200);
+            _ = Task.Delay(s_closeAnimationDuration + TimeSpan.FromMilliseconds(100))
+                .ContinueWith(_ => Dispatcher.InvokeAsync(() => animationCompletion.TrySetResult(true), DispatcherPriority.Send));
+
+            await animationCompletion.Task;
+            CompleteClose();
+        }
+
+        void CompleteClose()
+        {
+            if (_closed)
+                return;
+
+            _closed = true;
             RemoveFromVisualTree();
+            Closed?.Invoke(this, EventArgs.Empty);
+            _closeCompletion.TrySetResult(true);
         }
 
         void RemoveFromVisualTree()

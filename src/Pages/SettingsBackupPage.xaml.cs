@@ -25,16 +25,23 @@ public partial class SettingsBackupPage : Page
     {
         Dispatcher.InvokeAsync(async () =>
         {
-            List<string> backups = await BackupManager.GetAllBackupsAsync();
-
-            _stackPanel.Children.Clear();
-
-            foreach (string backup in backups)
+            try
             {
-                var displayName = backup.EndsWith(".zip", StringComparison.OrdinalIgnoreCase)
-                    ? System.IO.Path.GetFileNameWithoutExtension(backup)
-                    : backup;
-                AddBackupItem(displayName, backup);
+                List<string> backups = await BackupManager.GetAllBackupsAsync();
+
+                _stackPanel.Children.Clear();
+
+                foreach (string backup in backups)
+                {
+                    var displayName = backup.EndsWith(".zip", StringComparison.OrdinalIgnoreCase)
+                        ? System.IO.Path.GetFileNameWithoutExtension(backup)
+                        : backup;
+                    AddBackupItem(displayName, backup);
+                }
+            }
+            catch (Exception exception)
+            {
+                MainWindow.CreateMessageBox($"Failed to load backups: {exception.Message}");
             }
         });
     }

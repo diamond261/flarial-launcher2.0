@@ -24,6 +24,8 @@ public partial class SettingsGeneralPage : Page
 
     public static ToggleButton saveButton;
 
+    const string SaveFailureMessage = "Failed to save launcher settings.";
+
     readonly Settings _settings = Settings.Current;
 
     //    readonly TextBlock _launcherFolderButtonTextBlock, _clientFolderButtonTextBlock;
@@ -192,6 +194,7 @@ public partial class SettingsGeneralPage : Page
         var button = (ToggleButton)sender;
         if (button.IsChecked is not bool @checked) return;
         _settings.WaitForInitialization = @checked;
+        _settings.TrySave(SaveFailureMessage);
     }
 
     void HardwareAcceleration_Click(object sender, RoutedEventArgs e)
@@ -203,6 +206,7 @@ public partial class SettingsGeneralPage : Page
             return;
 
         settings.HardwareAcceleration = @checked;
+        settings.TrySave(SaveFailureMessage);
     }
 
     void SaveOnTray_Click(object sender, RoutedEventArgs e)
@@ -214,6 +218,7 @@ public partial class SettingsGeneralPage : Page
             return;
 
         settings.SaveOnTray = @checked;
+        settings.TrySave(SaveFailureMessage);
     }
 
     void DisableAutoVoid_Click(object sender, RoutedEventArgs e)
@@ -227,6 +232,7 @@ public partial class SettingsGeneralPage : Page
 
         _settings.DisableAutoVoid = @checked;
         window.SetAutoVoidDisabled(@checked);
+        _settings.TrySave(SaveFailureMessage);
     }
 
     private void ToggleButton_Click_1(object sender, RoutedEventArgs e)
@@ -238,6 +244,7 @@ public partial class SettingsGeneralPage : Page
             return;
 
         settings.AutoLogin = @checked;
+        settings.TrySave(SaveFailureMessage);
     }
 
     private void BuildChanged(object sender, RoutedEventArgs e)
@@ -270,6 +277,8 @@ public partial class SettingsGeneralPage : Page
             CustomTargetTextBox.IsEnabled = false;
             Animations.ToggleButtonTransitions.UnCheckedAnimation(CustomTargetGrid);
         }
+
+        settings.TrySave(SaveFailureMessage);
     }
 
     void CustomTargetInjection_Click(object sender, RoutedEventArgs args)
@@ -289,6 +298,8 @@ public partial class SettingsGeneralPage : Page
             CustomTargetTextBox.IsEnabled = false;
             Animations.ToggleButtonTransitions.UnCheckedAnimation(CustomTargetGrid);
         }
+
+        _settings.TrySave(SaveFailureMessage);
     }
 
     void CustomTargetTextBox_OnTextChanged(object sender, TextChangedEventArgs args)
@@ -296,5 +307,6 @@ public partial class SettingsGeneralPage : Page
         _settings.CustomTargetProcessName = string.IsNullOrWhiteSpace(CustomTargetTextBox.Text)
             ? "Minecraft.Windows.exe"
             : CustomTargetTextBox.Text;
+        _settings.TrySave(SaveFailureMessage);
     }
 }

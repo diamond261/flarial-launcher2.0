@@ -18,33 +18,71 @@ sealed class GDKVersionEntry : VersionEntry
 
     readonly string[] _urls;
 
+    internal override InstallRequest.PackageInstallKind InstallKind => InstallRequest.PackageInstallKind.Gdk;
+
     static string WithCacheBust(string uri) => $"{uri}?t={DateTimeOffset.UtcNow.ToUnixTimeSeconds()}";
 
     GDKVersionEntry(string[] urls) : base() => _urls = urls;
 
     internal static async Task<Dictionary<string, VersionEntry>> GetAsync() => await Task.Run(async () =>
     {
-        Dictionary<string, VersionEntry> entries = [];
-        Dictionary<string, Dictionary<string, string[]>> collection;
+        using var stream = await HttpService.GetAsync<Stream>(WithCacheBust(PackagesUri));
+        var @object = s_serializer.ReadObject(stream);
+        return ParseEntries((Dictionary<string, Dictionary<string, string[]>>)@object);
+    });
 
-        using (var stream = await HttpService.GetAsync<Stream>(WithCacheBust(PackagesUri)))
+    internal static Dictionary<string, VersionEntry> ParseEntries(Dictionary<string, Dictionary<string, string[]>> collection)
+    {
+        if (collection is null)
+            throw new InvalidDataException("GDK catalog payload was empty.");
+
+        Dictionary<string, VersionEntry> entries = new(StringComparer.OrdinalIgnoreCase);
+        Dictionary<string, Version> parsedVersions = new(StringComparer.OrdinalIgnoreCase);
+
+        if (!collection.TryGetValue("release", out var release) || release is null)
+            throw new InvalidDataException("GDK release catalog is missing the 'release' section.");
+
+        foreach (var item in release)
         {
-            var @object = s_serializer.ReadObject(stream);
-            collection = (Dictionary<string, Dictionary<string, string[]>>)@object;
-        }
+            if (!VersionCatalog.TryNormalizeVersion(item.Key, out var version, out var parsedVersion))
+            {
+                VersionCatalog.Log($"VersionCatalog GDK row ignored | reason=InvalidVersion | value={item.Key}");
+                continue;
+            }
 
-        foreach (var item in collection["release"])
-        {
-            var version = item.Key;
-            var index = version.LastIndexOf('.');
+            var urls = (item.Value ?? [])
+                .Select(_ => _?.Trim())
+                .Where(_ => !string.IsNullOrWhiteSpace(_))
+                .Cast<string>()
+                .Distinct(StringComparer.OrdinalIgnoreCase)
+                .ToArray();
 
-            version = version.Substring(0, index);
-            if (!entries.ContainsKey(version))
-                entries.Add(version, new GDKVersionEntry(item.Value));
+            if (urls.Length == 0)
+            {
+                VersionCatalog.Log($"VersionCatalog GDK row ignored | reason=MissingUrls | version={version}");
+                continue;
+            }
+
+            if (entries.ContainsKey(version))
+            {
+                if (VersionCatalog.ShouldReplaceDuplicate(parsedVersion, parsedVersions[version]))
+                {
+                    entries[version] = new GDKVersionEntry(urls);
+                    parsedVersions[version] = parsedVersion;
+                    VersionCatalog.Log($"VersionCatalog GDK duplicate replaced | version={version} | urlCount={urls.Length}");
+                    continue;
+                }
+
+                VersionCatalog.Log($"VersionCatalog GDK duplicate ignored | version={version} | urlCount={urls.Length}");
+                continue;
+            }
+
+            entries.Add(version, new GDKVersionEntry(urls));
+            parsedVersions.Add(version, parsedVersion);
         }
 
         return entries;
-    });
+    }
 
     internal override async Task<string> UriAsync() => _urls[0];
 

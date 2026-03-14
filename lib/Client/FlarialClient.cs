@@ -8,6 +8,7 @@ using Flarial.Launcher.Services.Networking;
 using Windows.Data.Json;
 using Flarial.Launcher.Services.Core;
 using Flarial.Launcher.Services.Native;
+using System.Net.Http;
 
 namespace Flarial.Launcher.Services.Client;
 
@@ -84,14 +85,20 @@ public abstract class FlarialClient
 
     public async Task<bool> DownloadAsync(Action<int> action)
     {
-        Task<string>[] tasks = [LocalHashAsync(), RemoteHashAsync()];
+        try
+        {
+            Task<string>[] tasks = [LocalHashAsync(), RemoteHashAsync()];
 
-        await Task.WhenAll(tasks);
-        if ((await tasks[0]).Equals(await tasks[1], OrdinalIgnoreCase)) return true;
+            await Task.WhenAll(tasks);
+            if ((await tasks[0]).Equals(await tasks[1], OrdinalIgnoreCase))
+                return true;
 
-        try { File.Delete(Library); } catch { return false; }
-        await HttpService.DownloadAsync(Uri, Library, action);
-
-        return true;
+            await HttpService.DownloadAsync(Uri, Library, action);
+            return true;
+        }
+        catch (Exception exception) when (exception is IOException || exception is UnauthorizedAccessException || exception is HttpRequestException)
+        {
+            throw new IOException($"Failed to update '{Library}'. {exception.Message}", exception);
+        }
     }
 }

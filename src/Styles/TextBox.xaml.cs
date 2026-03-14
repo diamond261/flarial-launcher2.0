@@ -9,8 +9,10 @@ namespace Flarial.Launcher.Styles
     /// <summary>
     /// Interaction logic for TextBox.xaml
     /// </summary>
-    public partial class TextBox : UserControl
+public partial class TextBox : UserControl
     {
+        const string SaveFailureMessage = "Failed to save custom DLL settings.";
+
         private readonly Settings _settings = Settings.Current;
         
         public TextBox()
@@ -37,12 +39,14 @@ namespace Flarial.Launcher.Styles
             var value = string.Join(";", files);
             textbox.Text = value;
             _settings.CustomDllPath = value;
+            _settings.TrySave(SaveFailureMessage);
             SettingsGeneralPage.saveButton.IsChecked = true;
         }
 
         private void Textbox_OnTextChanged(object sender, TextChangedEventArgs e)
         {
             _settings.CustomDllPath = textbox.Text;
+            _settings.TrySave(SaveFailureMessage);
         }
     }
 }

@@ -5,6 +5,7 @@
       xmlns:d="http://schemas.microsoft.com/expression/blend/2008"
       mc:Ignorable="d"
       Title="SettingsSwitcherPage"
+      Background="#120E0F"
       Height="470"
       Width="555">
     <Page.Resources>
@@ -38,11 +39,88 @@
                 </Setter.Value>
             </Setter>
         </Style>
+
+        <Style x:Key="VersionRowStyle" TargetType="ListBoxItem">
+            <Setter Property="Padding" Value="0"/>
+            <Setter Property="Margin" Value="0,0,0,8"/>
+            <Setter Property="HorizontalContentAlignment" Value="Stretch"/>
+            <Setter Property="Background" Value="#151515"/>
+            <Setter Property="BorderBrush" Value="#231B1C"/>
+            <Setter Property="BorderThickness" Value="1"/>
+            <Setter Property="Template">
+                <Setter.Value>
+                    <ControlTemplate TargetType="ListBoxItem">
+                        <Border x:Name="RowBorder"
+                                Background="{TemplateBinding Background}"
+                                BorderBrush="{TemplateBinding BorderBrush}"
+                                BorderThickness="{TemplateBinding BorderThickness}"
+                                CornerRadius="12"
+                                Padding="14,7">
+                            <ContentPresenter/>
+                        </Border>
+                        <ControlTemplate.Triggers>
+                            <Trigger Property="IsMouseOver" Value="True">
+                                <Setter TargetName="RowBorder" Property="Background" Value="#1C1718"/>
+                                <Setter TargetName="RowBorder" Property="BorderBrush" Value="#3B2C2F"/>
+                            </Trigger>
+                            <Trigger Property="IsSelected" Value="True">
+                                <Setter TargetName="RowBorder" Property="Background" Value="#221A1B"/>
+                                <Setter TargetName="RowBorder" Property="BorderBrush" Value="#FF2438"/>
+                            </Trigger>
+                        </ControlTemplate.Triggers>
+                    </ControlTemplate>
+                </Setter.Value>
+            </Setter>
+        </Style>
+
+        <Style x:Key="PagingButtonStyle" TargetType="Button">
+            <Setter Property="Padding" Value="12,6"/>
+            <Setter Property="MinWidth" Value="78"/>
+            <Setter Property="Margin" Value="0"/>
+            <Setter Property="Foreground" Value="#F6F3F4"/>
+            <Setter Property="Background" Value="#221B1C"/>
+            <Setter Property="BorderBrush" Value="#3A2F30"/>
+            <Setter Property="BorderThickness" Value="1"/>
+            <Setter Property="FontFamily" Value="pack://application:,,,/Assets/#Space Grotesk"/>
+            <Setter Property="FontWeight" Value="SemiBold"/>
+            <Setter Property="Cursor" Value="Hand"/>
+            <Setter Property="Template">
+                <Setter.Value>
+                    <ControlTemplate TargetType="Button">
+                        <Border x:Name="Root"
+                                Background="{TemplateBinding Background}"
+                                BorderBrush="{TemplateBinding BorderBrush}"
+                                BorderThickness="{TemplateBinding BorderThickness}"
+                                CornerRadius="10"
+                                SnapsToDevicePixels="True">
+                            <ContentPresenter HorizontalAlignment="Center" VerticalAlignment="Center" Margin="0,1,0,0"/>
+                        </Border>
+                        <ControlTemplate.Triggers>
+                            <Trigger Property="IsMouseOver" Value="True">
+                                <Setter TargetName="Root" Property="Background" Value="#2C2224"/>
+                                <Setter TargetName="Root" Property="BorderBrush" Value="#FF2438"/>
+                            </Trigger>
+                            <Trigger Property="IsPressed" Value="True">
+                                <Setter TargetName="Root" Property="Background" Value="#3A2326"/>
+                                <Setter TargetName="Root" Property="BorderBrush" Value="#FF3A4D"/>
+                            </Trigger>
+                            <Trigger Property="IsEnabled" Value="False">
+                                <Setter TargetName="Root" Property="Background" Value="#171314"/>
+                                <Setter TargetName="Root" Property="BorderBrush" Value="#2A2223"/>
+                                <Setter Property="Foreground" Value="#71686A"/>
+                                <Setter Property="Cursor" Value="Arrow"/>
+                            </Trigger>
+                        </ControlTemplate.Triggers>
+                    </ControlTemplate>
+                </Setter.Value>
+            </Setter>
+        </Style>
     </Page.Resources>
 
-    <Grid Margin="20">
+    <Grid Margin="20" Background="#120E0F">
 
         <Grid.RowDefinitions>
+            <RowDefinition Height="Auto"/>
             <RowDefinition Height="Auto"/>
             <RowDefinition Height="Auto"/>
             <RowDefinition Height="*"/>
@@ -50,7 +128,7 @@
         </Grid.RowDefinitions>
 
         <Grid HorizontalAlignment="Left">
-            <Label Margin="0,0,0,5" HorizontalAlignment="Left" Content="Switcher" Foreground="White" FontSize="24" FontWeight="Bold" FontFamily="pack://application:,,,/Assets/#Space Grotesk"/>
+            <Label Margin="0,0,0,5" HorizontalAlignment="Left" Content="Switcher" Foreground="White" FontSize="25" FontWeight="Bold" FontFamily="pack://application:,,,/Assets/#Space Grotesk"/>
             <Border Margin="5,0,0,5" VerticalAlignment="Bottom" Background="#FF2438" Height="3"/>
         </Grid>
 
@@ -60,20 +138,47 @@
             <ToggleButton x:Name="GdkTab" Style="{StaticResource PlatformTabStyle}" Content="GDK" Click="PlatformTab_Click"/>
         </StackPanel>
 
-        <ListBox Grid.Row="2" x:Name="VersionsList" MouseDoubleClick="VersionsList_MouseDoubleClick" Background="#151515" Foreground="White" BorderBrush="#32292A" BorderThickness="1" ScrollViewer.VerticalScrollBarVisibility="Auto">
+        <Border Grid.Row="2" Background="#151515" BorderBrush="#32292A" BorderThickness="1" CornerRadius="11" Margin="0,0,0,10">
+            <Grid Height="30" Margin="12,0,10,0">
+                <Grid.ColumnDefinitions>
+                    <ColumnDefinition Width="Auto"/>
+                    <ColumnDefinition Width="*"/>
+                </Grid.ColumnDefinitions>
+                <TextBlock Text="&#x1F50D;" IsHitTestVisible="False" VerticalAlignment="Center" Foreground="#8D8082" FontSize="13" Margin="0,0,5,0"/>
+                <TextBox Grid.Column="1" x:Name="SearchBox" TextChanged="SearchBox_TextChanged" BorderThickness="0" Background="Transparent" Foreground="White" CaretBrush="#FF2438" FontSize="14" FontFamily="pack://application:,,,/Assets/#Space Grotesk" Margin="0,7,0,0" Padding="0" VerticalContentAlignment="Center" FontWeight="SemiBold"/>
+                <TextBlock Grid.Column="1" IsHitTestVisible="False" Margin="0,3,0,0" VerticalAlignment="Center" Foreground="#7A7A7A" FontSize="14" FontWeight="SemiBold" FontFamily="pack://application:,,,/Assets/#Space Grotesk" Text="Search version or platform">
+                    <TextBlock.Style>
+                        <Style TargetType="TextBlock">
+                            <Setter Property="Visibility" Value="Collapsed"/>
+                            <Style.Triggers>
+                                <DataTrigger Binding="{Binding Text, ElementName=SearchBox}" Value="">
+                                    <Setter Property="Visibility" Value="Visible"/>
+                                </DataTrigger>
+                            </Style.Triggers>
+                        </Style>
+                    </TextBlock.Style>
+                </TextBlock>
+            </Grid>
+        </Border>
+
+        <ListBox Grid.Row="3" x:Name="VersionsList" MouseDoubleClick="VersionsList_MouseDoubleClick" Background="#111112" Foreground="White" BorderBrush="#32292A" BorderThickness="1" Padding="6,4,4,4" ScrollViewer.VerticalScrollBarVisibility="Auto" ItemContainerStyle="{StaticResource VersionRowStyle}">
             <ListBox.ItemTemplate>
                 <DataTemplate>
-                    <Grid Margin="4">
+                    <Grid>
                         <Grid.ColumnDefinitions>
                             <ColumnDefinition Width="*"/>
                             <ColumnDefinition Width="Auto"/>
                             <ColumnDefinition Width="Auto"/>
                         </Grid.ColumnDefinitions>
-                        <TextBlock Text="{Binding Label}" VerticalAlignment="Center" FontSize="15"/>
-                        <Border Grid.Column="1" Background="#2A4A2F" CornerRadius="8" Padding="8,2" Margin="8,0,0,0">
+                        <StackPanel Orientation="Vertical" VerticalAlignment="Center">
+                            <TextBlock Text="{Binding Label}" VerticalAlignment="Center" FontSize="15" FontWeight="SemiBold" Foreground="White" FontFamily="pack://application:,,,/Assets/#Space Grotesk"/>
+                            <TextBlock Text="{Binding StatusText}" Margin="0,1,0,0" FontSize="10" Foreground="#8C7E80" FontFamily="pack://application:,,,/Assets/#Space Grotesk"/>
+                        </StackPanel>
+                        <Border Grid.Column="1" CornerRadius="9" Padding="10,2" Margin="10,0,0,0" VerticalAlignment="Center">
                             <Border.Style>
                                 <Style TargetType="Border">
                                     <Setter Property="Visibility" Value="Collapsed"/>
+                                    <Setter Property="Background" Value="#2A4A2F"/>
                                     <Style.Triggers>
                                         <DataTrigger Binding="{Binding IsInstalled}" Value="True">
                                             <Setter Property="Visibility" Value="Visible"/>
@@ -81,16 +186,81 @@
                                     </Style.Triggers>
                                 </Style>
                             </Border.Style>
-                            <TextBlock Text="Installed" FontSize="12"/>
+                            <TextBlock Text="Installed" FontSize="12" FontWeight="SemiBold" FontFamily="pack://application:,,,/Assets/#Space Grotesk"/>
                         </Border>
-                        <Border Grid.Column="2" Background="#3A2F30" CornerRadius="8" Padding="8,2" Margin="8,0,0,0">
-                            <TextBlock Text="{Binding Platform}" FontSize="12"/>
+                        <Border Grid.Column="2" Background="#3A2F30" CornerRadius="9" Padding="10,2" Margin="10,0,0,0" VerticalAlignment="Center">
+                            <TextBlock Text="{Binding Platform}" FontSize="12" FontWeight="SemiBold" FontFamily="pack://application:,,,/Assets/#Space Grotesk"/>
                         </Border>
                     </Grid>
                 </DataTemplate>
             </ListBox.ItemTemplate>
         </ListBox>
 
-        <TextBlock Grid.Row="3" x:Name="ProgressText" Text="Double-click a version to install" VerticalAlignment="Center" Foreground="#B0B0B0" Margin="0,10,0,0"/>
+        <Grid Grid.Row="4" Margin="0,10,0,0">
+            <Grid.ColumnDefinitions>
+                <ColumnDefinition Width="*"/>
+                <ColumnDefinition Width="Auto"/>
+            </Grid.ColumnDefinitions>
+
+            <TextBlock Grid.Column="0" x:Name="ProgressText" Text="Double-click a version to install" VerticalAlignment="Center" Foreground="#B0B0B0"/>
+
+            <StackPanel Grid.Column="1" Orientation="Horizontal" VerticalAlignment="Center">
+                <Button x:Name="PreviousPageButton"
+                        Style="{StaticResource PagingButtonStyle}"
+                        Click="PreviousPageButton_Click"
+                        Content="← Previous"
+                        Margin="0,0,10,0"/>
+
+                <Border Margin="0,0,10,0"
+                        Padding="12,6"
+                        Background="#1B1516"
+                        BorderBrush="#33292A"
+                        BorderThickness="1"
+                        CornerRadius="10"
+                        VerticalAlignment="Center">
+                    <TextBlock x:Name="PageInfoText"
+                               VerticalAlignment="Center"
+                               Foreground="#D3C7C9"
+                               FontFamily="pack://application:,,,/Assets/#Space Grotesk"
+                               FontWeight="SemiBold"
+                               Text="Page 0 / 0"/>
+                </Border>
+
+                <Button x:Name="NextPageButton"
+                        Style="{StaticResource PagingButtonStyle}"
+                        Click="NextPageButton_Click"
+                        Content="Next →"/>
+            </StackPanel>
+        </Grid>
+
+        <Border x:Name="BusyOverlay"
+                Grid.RowSpan="5"
+                Visibility="Collapsed"
+                Background="#D9111112"
+                CornerRadius="18"
+                Margin="-6">
+            <Border HorizontalAlignment="Center"
+                    VerticalAlignment="Center"
+                    Background="#E61A1415"
+                    BorderBrush="#3B2C2F"
+                    BorderThickness="1"
+                    CornerRadius="14"
+                    Padding="22,14">
+                <StackPanel>
+                    <TextBlock Text="Switching version..."
+                               HorizontalAlignment="Center"
+                               Foreground="White"
+                               FontSize="16"
+                               FontWeight="SemiBold"
+                               FontFamily="pack://application:,,,/Assets/#Space Grotesk"/>
+                    <TextBlock Text="Please wait until the install finishes."
+                               Margin="0,4,0,0"
+                               HorizontalAlignment="Center"
+                               Foreground="#B6A9AB"
+                               FontSize="12"
+                               FontFamily="pack://application:,,,/Assets/#Space Grotesk"/>
+                </StackPanel>
+            </Border>
+        </Border>
     </Grid>
 </Page>

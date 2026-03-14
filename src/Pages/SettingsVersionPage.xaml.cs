@@ -9,6 +9,8 @@ namespace Flarial.Launcher.Pages;
 
 public partial class SettingsVersionPage : Page
 {
+    const string SaveFailureMessage = "Failed to save custom DLL settings.";
+
     sealed class DllEntryRow
     {
         public string Path { get; set; } = string.Empty;
@@ -46,9 +48,13 @@ public partial class SettingsVersionPage : Page
             .ToArray();
     }
 
-    void Persist()
+    void Persist(bool save = true)
     {
         _settings.CustomDllPath = string.Join(";", _items.Select(item => $"{(item.Enabled ? "1" : "0")}|{item.Path}"));
+
+        if (save)
+            _settings.TrySave(SaveFailureMessage);
+
         DllListBox.ItemsSource = null;
         DllListBox.ItemsSource = _items;
     }
@@ -60,7 +66,7 @@ public partial class SettingsVersionPage : Page
         foreach (var entry in ParsePaths(_settings.CustomDllPath ?? string.Empty))
             _items.Add(entry);
 
-        Persist();
+        Persist(false);
     }
 
     void EntryEnabledChanged(object sender, RoutedEventArgs e) => Persist();

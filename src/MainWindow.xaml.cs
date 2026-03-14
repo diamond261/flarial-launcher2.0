@@ -7,6 +7,7 @@ using System.ComponentModel;
 using System.IO;
 using System.Linq;
 using System.Reflection;
+using System.Threading;
 using System.Threading.Tasks;
 using System.Windows;
 using System.Windows.Controls;
@@ -30,6 +31,15 @@ namespace Flarial.Launcher;
 
 public partial class MainWindow
 {
+    internal readonly struct StartupSettingsState
+    {
+        internal StartupSettingsState(bool autoVoidDisabled, bool hardwareAccelerationDisabled)
+            => (AutoVoidDisabled, HardwareAccelerationDisabled) = (autoVoidDisabled, hardwareAccelerationDisabled);
+
+        internal bool AutoVoidDisabled { get; }
+        internal bool HardwareAccelerationDisabled { get; }
+    }
+
     public static bool Reverse, isDownloadingVersion;
 
     public static ImageBrush PFP;
@@ -39,6 +49,11 @@ public partial class MainWindow
     public static DialogBox MainWindowDialogBox;
 
     private static StackPanel mbGrid;
+    static readonly SemaphoreSlim s_messageBoxGate = new(1, 1);
+    static Styles.MessageBox s_activeMessageBox;
+    static int s_messageBoxRequestId;
+    static string s_pendingStartupMessage = string.Empty;
+    static bool s_pendingStartupMessageIsFailure;
 
     internal readonly WindowInteropHelper WindowInteropHelper;
 
@@ -57,6 +72,10 @@ public partial class MainWindow
     readonly Forms.NotifyIcon _trayIcon;
 
     bool _exitRequested;
+    bool _launchInProgress;
+    int _blockingLauncherOperationCount;
+    string _blockingLauncherButtonText = "Working...";
+    string _blockingLauncherCloseMessage = string.Empty;
 
     bool _autoVoidDisabled;
 
@@ -111,6 +130,15 @@ public partial class MainWindow
             .ToArray();
     }
 
+    internal static StartupSettingsState ReadStartupSettings(Settings settings)
+        => new(settings.DisableAutoVoid, !settings.HardwareAcceleration);
+
+    internal static void SetPendingStartupMessage(string message, bool isFailure)
+    {
+        s_pendingStartupMessage = message ?? string.Empty;
+        s_pendingStartupMessageIsFailure = isFailure;
+    }
+
     public MainWindow()
     {
         InitializeComponent();
@@ -151,7 +179,8 @@ public partial class MainWindow
 
         SetGreetingLabel();
 
-        SetAutoVoidDisabled(_settings.DisableAutoVoid);
+        var startupSettings = ReadStartupSettings(_settings);
+        SetAutoVoidDisabled(startupSettings.AutoVoidDisabled);
         _autoVoidSoundPlayer.MediaOpened += (_, _) => _autoVoidSoundReady = true;
         _autoVoidSoundPlayer.MediaFailed += (_, _) => _autoVoidSoundReady = false;
 
@@ -210,13 +239,22 @@ public partial class MainWindow
     {
         try
         {
-            VersionLabel.Text = $"{Minecraft.Version} ({(Minecraft.UsingGameDevelopmentKit ? "GDK" : "UWP")})";
+            var installedState = Minecraft.GetInstallState();
+            VersionLabel.Text = installedState.IsInstalled
+                ? $"{installedState.Version} ({installedState.Platform})"
+                : "Not installed";
         }
         catch
         {
-            VersionLabel.Text = "0.0.0 (UWP)";
+            VersionLabel.Text = "Version unavailable";
         }
     });
+
+    internal static void RefreshGameVersionLabel()
+    {
+        if (Application.Current?.MainWindow is MainWindow window)
+            window.UpdateGameVersionText();
+    }
 
     protected override void OnSourceInitialized(EventArgs e)
     {
@@ -225,7 +263,7 @@ public partial class MainWindow
         _ = CheckLicenseAsync();
         CreateMessageBox("Join our Discord: https://flarial.xyz/discord");
 
-        if (!_settings.HardwareAcceleration) CreateMessageBox("Hardware acceleration is disabled.");
+        if (ReadStartupSettings(_settings).HardwareAccelerationDisabled) CreateMessageBox("Hardware acceleration is disabled.");
     }
 
     static readonly SolidColorBrush _darkRed = new(Colors.DarkRed);
@@ -251,14 +289,129 @@ public partial class MainWindow
         PackageCatalog.PackageUpdating += (_, args) => { if (args.IsComplete) UpdateGameVersionText(args.TargetPackage); };
 
         UpdateGameVersionText();
+        RefreshLaunchAvailability();
+
+        if (!string.IsNullOrWhiteSpace(s_pendingStartupMessage))
+        {
+            StatusLabel.Text = s_pendingStartupMessageIsFailure ? "Launcher update failed." : "Launcher updated successfully.";
+            CreateMessageBox(s_pendingStartupMessage);
+            s_pendingStartupMessage = string.Empty;
+            s_pendingStartupMessageIsFailure = false;
+        }
+
+    }
+
+    void RefreshLaunchAvailability()
+    {
+        if (_launchInProgress)
+        {
+            IsLaunchEnabled = false;
+            return;
+        }
+
+        if (_blockingLauncherOperationCount > 0)
+        {
+            IsLaunchEnabled = false;
+            _launchButtonTextBlock.Text = string.IsNullOrWhiteSpace(_blockingLauncherButtonText)
+                ? "Working..."
+                : _blockingLauncherButtonText;
+            return;
+        }
+
         _launchButtonTextBlock.Text = "Launch";
         IsLaunchEnabled = true;
+    }
 
+    internal IDisposable BeginBlockingLauncherOperation(string launchButtonText, string closeMessage, string statusText = null)
+    {
+        _blockingLauncherOperationCount++;
+        _blockingLauncherButtonText = string.IsNullOrWhiteSpace(launchButtonText) ? "Working..." : launchButtonText;
+        _blockingLauncherCloseMessage = closeMessage ?? string.Empty;
+
+        if (!string.IsNullOrWhiteSpace(statusText))
+            StatusLabel.Text = statusText;
+
+        RefreshLaunchAvailability();
+        return new BlockingLauncherOperationScope(this);
+    }
+
+    void EndBlockingLauncherOperation()
+    {
+        if (_blockingLauncherOperationCount > 0)
+            _blockingLauncherOperationCount--;
+
+        if (_blockingLauncherOperationCount == 0)
+        {
+            _blockingLauncherButtonText = "Working...";
+            _blockingLauncherCloseMessage = string.Empty;
+        }
+
+        RefreshLaunchAvailability();
+    }
+
+    sealed class BlockingLauncherOperationScope(MainWindow window) : IDisposable
+    {
+        readonly MainWindow _window = window;
+        bool _disposed;
+
+        public void Dispose()
+        {
+            if (_disposed)
+                return;
+
+            _disposed = true;
+            _window.EndBlockingLauncherOperation();
+        }
     }
 
     public static void CreateMessageBox(string text)
     {
-        mbGrid.Children.Add(new Styles.MessageBox { Text = text });
+        _ = CreateMessageBoxAsync(text);
+    }
+
+    internal static Task CreateMessageBoxAsync(string text)
+        => ShowMessageBoxAsync(mbGrid, text);
+
+    internal static async Task ShowMessageBoxAsync(StackPanel host, string text)
+    {
+        if (host is null || string.IsNullOrWhiteSpace(text))
+            return;
+
+        if (!host.Dispatcher.CheckAccess())
+        {
+            await host.Dispatcher.InvokeAsync(() => ShowMessageBoxAsync(host, text)).Task.Unwrap();
+            return;
+        }
+
+        var requestId = Interlocked.Increment(ref s_messageBoxRequestId);
+        await s_messageBoxGate.WaitAsync();
+        try
+        {
+            if (requestId != s_messageBoxRequestId)
+                return;
+
+            if (s_activeMessageBox is not null)
+                await s_activeMessageBox.DismissAsync();
+
+            if (requestId != s_messageBoxRequestId)
+                return;
+
+            host.Children.Clear();
+
+            Styles.MessageBox messageBox = new() { Text = text };
+            messageBox.Closed += (_, _) =>
+            {
+                if (ReferenceEquals(s_activeMessageBox, messageBox))
+                    s_activeMessageBox = null;
+            };
+
+            s_activeMessageBox = messageBox;
+            host.Children.Add(messageBox);
+        }
+        finally
+        {
+            s_messageBoxGate.Release();
+        }
     }
 
     private void MoveWindow(object sender, MouseButtonEventArgs e) => DragMove();
@@ -315,10 +468,14 @@ public partial class MainWindow
 
     async Task<bool> LaunchClientAsync(bool silentFailures)
     {
+        var failureStage = "launch";
+        var build = _settings.DllBuild;
+
         try
         {
             PlayAutoVoidLaunchSound();
-            IsLaunchEnabled = false;
+            _launchInProgress = true;
+            RefreshLaunchAvailability();
             _launchButtonTextBlock.Text = "Verifying...";
 
             if (!Minecraft.IsInstalled)
@@ -328,7 +485,6 @@ public partial class MainWindow
                 return false;
             }
 
-            var build = _settings.DllBuild;
             var path = _settings.CustomDllPath;
             var custom = build is DllBuild.Custom;
             var initialized = _settings.WaitForInitialization;
@@ -426,8 +582,10 @@ public partial class MainWindow
 Hence use at your own risk.", ("Cancel", false), ("Launch", true)))
                 return false;
 
+            failureStage = "update";
             if (!await client.DownloadAsync(ClientDownloadProgressAction))
             {
+                StatusLabel.Text = "Client update failed.";
                 if (!silentFailures)
                     await DialogBox.ShowAsync("Update Failed", @"A client update couldn't be downloaded.
 
@@ -439,10 +597,12 @@ If you need help, join our Discord.", ("OK", true));
             }
 
             _launchButtonTextBlock.Text = "Launching...";
+            failureStage = "inject";
             var launched = await Task.Run(() => client.Launch(initialized));
 
             if (!launched)
             {
+                StatusLabel.Text = "Client launch failed.";
                 if (!silentFailures)
                     await DialogBox.ShowAsync("Launch Failure", @"The client couldn't inject correctly.
 
@@ -456,10 +616,25 @@ If you need help, join our Discord.", ("OK", true));
             StatusLabel.Text = $"Launched {(beta ? "Beta" : "Release")} DLL.";
             return true;
         }
+        catch (Exception exception)
+        {
+            Logger.Error("Client launch workflow failed", exception, ("Stage", failureStage), ("Build", build.ToString()));
+
+            var message = failureStage == "update"
+                ? $"A client update failed. {exception.Message}"
+                : $"The client couldn't be launched. {exception.Message}";
+
+            StatusLabel.Text = failureStage == "update" ? "Client update failed." : "Client launch failed.";
+
+            if (!silentFailures)
+                await DialogBox.ShowAsync(failureStage == "update" ? "Update Failed" : "Launch Failure", message, ("OK", true));
+
+            return false;
+        }
         finally
         {
-            _launchButtonTextBlock.Text = "Launch";
-            IsLaunchEnabled = true;
+            _launchInProgress = false;
+            RefreshLaunchAvailability();
         }
     }
 
@@ -528,17 +703,26 @@ If you need help, join our Discord.", ("OK", true));
     });
     private void Window_OnClosing(object sender, CancelEventArgs e)
     {
-        if (_settings.SaveOnTray && !_exitRequested)
-        {
-            e.Cancel = true;
-            MinimizeToTray();
-            return;
-        }
-
         if (isDownloadingVersion)
         {
             e.Cancel = true;
             CreateMessageBox("The launcher cannot be closed because a Minecraft version is being downloaded.");
+            return;
+        }
+
+        if (_blockingLauncherOperationCount > 0)
+        {
+            e.Cancel = true;
+            CreateMessageBox(string.IsNullOrWhiteSpace(_blockingLauncherCloseMessage)
+                ? "The launcher cannot be closed while a launcher operation is in progress."
+                : _blockingLauncherCloseMessage);
+            return;
+        }
+
+        if (_settings.SaveOnTray && !_exitRequested)
+        {
+            e.Cancel = true;
+            MinimizeToTray();
         }
     }
 

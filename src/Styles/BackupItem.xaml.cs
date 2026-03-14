@@ -18,47 +18,73 @@ public partial class BackupItem : UserControl
         DataContext = this;
     }
 
-    private void LoadBackup(object sender, RoutedEventArgs e)
+    async void LoadBackup(object sender, RoutedEventArgs e)
     {
-        Dispatcher.InvokeAsync(async () => await BackupManager.LoadBackup(Path));
-        Application.Current.Dispatcher.Invoke(() =>
-        {
-            MainWindow.CreateMessageBox("Loading the backup. This may take some time!");
-            MainWindow.CreateMessageBox("Don't launch Minecraft in the mean time.");
+        IsHitTestVisible = false;
+        IDisposable launcherBusy = null;
 
-        });
-        //add code here
+        MainWindow.CreateMessageBox("Loading the backup. This may take some time!");
+        MainWindow.CreateMessageBox("Don't launch Minecraft in the mean time.");
+
+        try
+        {
+            launcherBusy = (Application.Current.MainWindow as MainWindow)?.BeginBlockingLauncherOperation(
+                "Restoring...",
+                "The launcher cannot be closed while a backup restore is in progress.",
+                "Restoring backup...");
+
+            var result = await BackupManager.LoadBackup(Path);
+            MainWindow.CreateMessageBox(result.Message);
+        }
+        finally
+        {
+            launcherBusy?.Dispose();
+            IsHitTestVisible = true;
+        }
     }
 
-    private async void DeleteBackup(object sender, RoutedEventArgs e)
+    async void DeleteBackup(object sender, RoutedEventArgs e)
     {
-        // add the code here
+        IsHitTestVisible = false;
 
-        var animationX = new DoubleAnimation
+        try
         {
-            To = 0,
-            EasingFunction = new QuadraticEase { EasingMode = EasingMode.EaseIn },
-            Duration = TimeSpan.FromMilliseconds(250)
-        };
-        var animationY = animationX.Clone();
+            var result = await BackupManager.DeleteBackup(Path);
+            if (!result.Success)
+            {
+                MainWindow.CreateMessageBox(result.Message);
+                return;
+            }
 
-        var storyboard = new Storyboard();
+            var animationX = new DoubleAnimation
+            {
+                To = 0,
+                EasingFunction = new QuadraticEase { EasingMode = EasingMode.EaseIn },
+                Duration = TimeSpan.FromMilliseconds(250)
+            };
+            var animationY = animationX.Clone();
 
-        Storyboard.SetTarget(animationX, this);
-        Storyboard.SetTargetProperty(animationX, new PropertyPath("RenderTransform.ScaleX"));
-        Storyboard.SetTarget(animationY, this);
-        Storyboard.SetTargetProperty(animationY, new PropertyPath("RenderTransform.ScaleY"));
+            var storyboard = new Storyboard();
 
-        storyboard.Children.Add(animationX);
-        storyboard.Children.Add(animationY);
+            Storyboard.SetTarget(animationX, this);
+            Storyboard.SetTargetProperty(animationX, new PropertyPath("RenderTransform.ScaleX"));
+            Storyboard.SetTarget(animationY, this);
+            Storyboard.SetTargetProperty(animationY, new PropertyPath("RenderTransform.ScaleY"));
 
-        storyboard.Begin(this);
+            storyboard.Children.Add(animationX);
+            storyboard.Children.Add(animationY);
 
-        await Task.Delay(animationX.Duration.TimeSpan);
+            storyboard.Begin(this);
 
-        (this.VisualParent as VirtualizingStackPanel)?.Children.Remove(this);
+            await Task.Delay(animationX.Duration.TimeSpan);
 
-        await Dispatcher.InvokeAsync(async () => await BackupManager.DeleteBackup(Path));
+            (this.VisualParent as VirtualizingStackPanel)?.Children.Remove(this);
+            MainWindow.CreateMessageBox(result.Message);
+        }
+        finally
+        {
+            IsHitTestVisible = true;
+        }
 
     }
 }

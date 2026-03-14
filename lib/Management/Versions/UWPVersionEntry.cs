@@ -26,6 +26,8 @@ sealed class UWPVersionEntry : VersionEntry
     static readonly string s_content;
     static readonly DataContractJsonSerializer s_serializer = new(typeof(object[][]), s_settings);
 
+    internal override InstallRequest.PackageInstallKind InstallKind => InstallRequest.PackageInstallKind.Uwp;
+
     static string WithCacheBust(string uri) => $"{uri}?t={DateTimeOffset.UtcNow.ToUnixTimeSeconds()}";
 
     UWPVersionEntry(string identifier) : base() => _content = string.Format(s_content, identifier, '1');
@@ -42,43 +44,94 @@ sealed class UWPVersionEntry : VersionEntry
 
     internal static async Task<Dictionary<string, VersionEntry>> GetAsync() => await Task.Run(async () =>
     {
-        object[][] collection;
-        Dictionary<string, VersionEntry> entries = [];
+        using var stream = await HttpService.GetAsync<Stream>(WithCacheBust(PackagesUri));
+        var @object = s_serializer.ReadObject(stream);
+        return ParseEntries((object[][])@object);
+    });
 
-        using (var stream = await HttpService.GetAsync<Stream>(WithCacheBust(PackagesUri)))
-        {
-            var @object = s_serializer.ReadObject(stream);
-            collection = (object[][])@object;
-        }
+    internal static Dictionary<string, VersionEntry> ParseEntries(object[][] collection)
+    {
+        if (collection is null)
+            throw new InvalidDataException("UWP catalog payload was empty.");
+
+        Dictionary<string, VersionEntry> entries = new(StringComparer.OrdinalIgnoreCase);
+        Dictionary<string, Version> parsedVersions = new(StringComparer.OrdinalIgnoreCase);
 
         foreach (var item in collection)
         {
+            if (item is null)
+            {
+                VersionCatalog.Log("VersionCatalog UWP row ignored | reason=NullRow");
+                continue;
+            }
+
+            var isActive = true;
+
             if (item.Length < 2)
+            {
+                VersionCatalog.Log("VersionCatalog UWP row ignored | reason=MissingRequiredColumns");
                 continue;
+            }
 
-            if (item.Length > 2 && Convert.ToInt32(item[2]) != 0)
+            if (item.Length > 2 && !IsActive(item[2], out isActive))
+            {
+                VersionCatalog.Log($"VersionCatalog UWP row ignored | reason=InvalidAvailabilityFlag | value={item[2]}");
                 continue;
-
-            var version = item[0]?.ToString() ?? string.Empty;
-            var index = version.LastIndexOf('.');
-
-            if (index <= 0)
+            }
+            else if (item.Length > 2 && !isActive)
+            {
                 continue;
+            }
 
-            var identifier = item[1]?.ToString() ?? string.Empty;
+            var identifier = item[1]?.ToString()?.Trim() ?? string.Empty;
             if (identifier.Length == 0)
+            {
+                VersionCatalog.Log("VersionCatalog UWP row ignored | reason=MissingIdentifier");
                 continue;
+            }
 
-            version = version.Substring(0, index);
+            if (!VersionCatalog.TryNormalizeVersion(item[0]?.ToString() ?? string.Empty, out var version, out var parsedVersion))
+            {
+                VersionCatalog.Log($"VersionCatalog UWP row ignored | reason=InvalidVersion | value={item[0]}");
+                continue;
+            }
 
-            if (!entries.ContainsKey(version))
-                entries.Add(version, new UWPVersionEntry(identifier));
+            if (entries.ContainsKey(version))
+            {
+                if (VersionCatalog.ShouldReplaceDuplicate(parsedVersion, parsedVersions[version]))
+                {
+                    entries[version] = new UWPVersionEntry(identifier);
+                    parsedVersions[version] = parsedVersion;
+                    VersionCatalog.Log($"VersionCatalog UWP duplicate replaced | version={version} | identifier={identifier}");
+                    continue;
+                }
+
+                VersionCatalog.Log($"VersionCatalog UWP duplicate ignored | version={version} | identifier={identifier}");
+                continue;
+            }
+
+            entries.Add(version, new UWPVersionEntry(identifier));
+            parsedVersions.Add(version, parsedVersion);
         }
 
         return entries;
-    });
+    }
 
-    internal override async Task<string> UriAsync() => await Task.Run(async () =>
+    static bool IsActive(object value, out bool isActive)
+    {
+        isActive = false;
+
+        if (value is null)
+            return false;
+
+        if (!int.TryParse(value.ToString(), out var flag))
+            return false;
+
+        isActive = flag == 0;
+        return true;
+    }
+
+    internal override async Task<string[]> UrisAsync() => await Task.Run(async () =>
     {
         using StringContent content = new(_content, Encoding.UTF8, MediaType);
         using var message = await HttpService.PostAsync(StoreUri, content);
@@ -86,7 +139,16 @@ sealed class UWPVersionEntry : VersionEntry
         message.EnsureSuccessStatusCode();
         using var stream = await message.Content.ReadAsStreamAsync();
 
-        var descendants = XElement.Load(stream).Descendants();
-        return descendants.First(_ => _.Value.StartsWith(DownloadUri, StringComparison.OrdinalIgnoreCase)).Value;
+        return XElement.Load(stream)
+            .Descendants()
+            .Select(_ => _.Value?.Trim())
+            .Where(_ => !string.IsNullOrWhiteSpace(_))
+            .Cast<string>()
+            .Where(_ => _.StartsWith(DownloadUri, StringComparison.OrdinalIgnoreCase))
+            .Distinct(StringComparer.OrdinalIgnoreCase)
+            .ToArray();
     });
+
+    internal override async Task<string> UriAsync()
+        => (await UrisAsync()).First();
 }
